@@ -1361,15 +1361,25 @@ name = "codex-council"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "codex-api",
  "codex-apply-patch",
+ "codex-client",
  "codex-common",
+ "codex-core",
  "codex-git",
+ "codex-protocol",
+ "futures",
+ "http 1.3.1",
  "ignore",
+ "lazy_static",
+ "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
  "walkdir",
+ "wiremock",
 ]
 
 [[package]]

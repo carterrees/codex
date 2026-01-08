@@ -29,6 +29,7 @@ const MAX_REQUEST_MAX_RETRIES: u64 = 100;
 pub const CHAT_WIRE_API_DEPRECATION_SUMMARY: &str = r#"Support for the "chat" wire API is deprecated and will soon be removed. Update your model provider definition in config.toml to use wire_api = "responses"."#;
 
 const OPENAI_PROVIDER_NAME: &str = "OpenAI";
+const GEMINI_PROVIDER_NAME: &str = "Google Gemini";
 
 /// Wire protocol that the provider speaks. Most third-party services only
 /// implement the classic OpenAI Chat Completions JSON schema, whereas OpenAI
@@ -127,7 +128,7 @@ impl ModelProviderInfo {
         Ok(headers)
     }
 
-    pub(crate) fn to_api_provider(
+    pub fn to_api_provider(
         &self,
         auth_mode: Option<AuthMode>,
     ) -> crate::error::Result<ApiProvider> {
@@ -253,6 +254,29 @@ impl ModelProviderInfo {
     pub fn is_openai(&self) -> bool {
         self.name == OPENAI_PROVIDER_NAME
     }
+
+    pub fn create_gemini_provider() -> ModelProviderInfo {
+        ModelProviderInfo {
+            name: GEMINI_PROVIDER_NAME.into(),
+            base_url: Some(
+                std::env::var("GEMINI_BASE_URL")
+                    .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()),
+            ),
+            env_key: Some("GEMINI_API_KEY".to_string()),
+            env_key_instructions: Some(
+                "Get a Gemini API key from https://aistudio.google.com/".to_string(),
+            ),
+            experimental_bearer_token: None,
+            wire_api: WireApi::Chat,
+            query_params: None,
+            http_headers: None,
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            requires_openai_auth: false,
+        }
+    }
 }
 
 pub const DEFAULT_LMSTUDIO_PORT: u16 = 1234;
@@ -260,6 +284,7 @@ pub const DEFAULT_OLLAMA_PORT: u16 = 11434;
 
 pub const LMSTUDIO_OSS_PROVIDER_ID: &str = "lmstudio";
 pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
+pub const GEMINI_PROVIDER_ID: &str = "gemini";
 
 /// Built-in default provider list.
 pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
@@ -271,6 +296,7 @@ pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
     // `model_providers` in config.toml to add their own providers.
     [
         ("openai", P::create_openai_provider()),
+        (GEMINI_PROVIDER_ID, P::create_gemini_provider()),
         (
             OLLAMA_OSS_PROVIDER_ID,
             create_oss_provider(DEFAULT_OLLAMA_PORT, WireApi::Chat),
@@ -495,5 +521,18 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
                 "expected {base_url} not to be detected as Azure"
             );
         }
+    }
+
+    #[test]
+    fn test_gemini_provider_configuration() {
+        let provider = ModelProviderInfo::create_gemini_provider();
+        assert_eq!(provider.name, GEMINI_PROVIDER_NAME);
+        assert_eq!(
+            provider.base_url,
+            Some("https://generativelanguage.googleapis.com/v1beta/openai/".to_string())
+        );
+        assert_eq!(provider.env_key, Some("GEMINI_API_KEY".to_string()));
+        assert_eq!(provider.wire_api, WireApi::Chat);
+        assert_eq!(provider.requires_openai_auth, false);
     }
 }
