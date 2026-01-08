@@ -1,4 +1,6 @@
+pub mod context;
 pub mod run;
+pub mod types;
 pub mod verify;
 pub mod worktree;
 

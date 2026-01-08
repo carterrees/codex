@@ -1,5 +1,6 @@
 use crate::worktree::Worktree;
 use crate::verify::Verifier;
+use crate::context::ContextBuilder;
 use anyhow::Result;
 use std::path::PathBuf;
 use tracing::info;
@@ -20,20 +21,32 @@ pub async fn run_fix(config: CouncilConfig, target: PathBuf) -> Result<()> {
     
     let run_id = format!("run-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs());
     
-    // 1. Create worktree
+    // 1. Build Context (on main repo, before worktree or inside? Main repo is safer for finding deps)
+    info!("Building context...");
+    let builder = ContextBuilder::new(config.repo_root.clone());
+    let bundle = builder.build(&[target.clone()]).await?;
+    
+    // Setup runs dir
+    let run_dir = config.repo_root.join(".council").join("runs").join(&run_id);
+    let context_dir = run_dir.join("context");
+    let verify_dir = run_dir.join("verify");
+    fs::create_dir_all(&context_dir).await?;
+    fs::create_dir_all(&verify_dir).await?;
+
+    // Persist Context Bundle
+    fs::write(context_dir.join("bundle.json"), serde_json::to_string_pretty(&bundle)?).await?;
+    info!("Context bundle saved with {} related files and {} reverse deps.", 
+        bundle.related_files.len(), bundle.reverse_deps.len());
+
+    // 2. Create worktree
     let worktree = Worktree::create(&config.repo_root, &run_id).await?;
     info!("Worktree created at {:?}", worktree.path);
     
-    // Setup runs dir to store artifacts
-    let run_dir = config.repo_root.join(".council").join("runs").join(&run_id);
-    let verify_dir = run_dir.join("verify");
-    fs::create_dir_all(&verify_dir).await?;
-    
-    // 2. Verify
+    // 3. Verify (Baseline)
     // Currently runs on the fresh worktree (no patch).
     let results = Verifier::run_all(&worktree.path).await?;
     
-    // Persist results
+    // Persist verify results
     for res in &results {
         let filename = if res.command.contains("ruff format") {
             "ruff_format.txt"
@@ -54,7 +67,7 @@ pub async fn run_fix(config: CouncilConfig, target: PathBuf) -> Result<()> {
     
     info!("Verification complete. Results saved to {:?}", verify_dir);
 
-    // 3. Cleanup (not implemented yet per plan)
+    // 4. Cleanup (not implemented yet per plan)
     
     Ok(())
 }

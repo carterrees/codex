@@ -13,6 +13,8 @@ codex-apply-patch = { workspace = true }
 codex-common = { workspace = true }
 codex-git = { workspace = true }
 ignore = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["fs", "process", "sync"] }

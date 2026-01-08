@@ -1,15 +1,36 @@
+# Codex (Private Fork)
+
+**Note:** This is a private fork of the original Codex CLI. This repository is for personal, non-commercial use and experimentation.
+
 <p align="center"><code>npm i -g @openai/codex</code><br />or <code>brew install --cask codex</code></p>
-<p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
+<p align="center"><strong>Codex CLI</strong> is a coding agent that runs locally on your computer.
 <p align="center">
   <img src="./.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
 </p>
 </br>
-If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="https://developers.openai.com/codex/ide">install in your IDE.</a>
-</br>If you are looking for the <em>cloud-based agent</em> from OpenAI, <strong>Codex Web</strong>, go to <a href="https://chatgpt.com/codex">chatgpt.com/codex</a>.</p>
+
+## New Feature: Council
+
+This fork introduces **Council**, a deterministic, multi-model review and repair workflow designed for high-assurance code changes.
+
+### Key Features
+- **Worktree Isolation**: All changes are verified in a temporary git worktree before touching your main working directory.
+- **Context Awareness**: Automatically detects imports, reverse dependencies, and related tests to ensure changes don't break downstream code.
+- **Verification Pipeline**: Enforces `ruff format`, `ruff check`, and `pytest` on every patch.
+- **Roles**: Distinct "Reviewer", "Chair", and "Writer" roles (powered by different LLMs) to separate concerns.
+
+### Usage
+```bash
+# Review a file without changing it
+codex council review src/my_module.py
+
+# Fix a file (creates worktree -> plans -> patches -> verifies -> prompts to apply)
+codex council fix src/my_module.py
+```
 
 ---
 
-## Quickstart
+## Quickstart (Original)
 
 ### Installing and running Codex CLI
 
