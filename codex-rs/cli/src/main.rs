@@ -31,6 +31,7 @@ use std::path::PathBuf;
 use supports_color::Stream;
 
 mod mcp_cmd;
+mod council_cmd;
 #[cfg(not(windows))]
 mod wsl_paths;
 
@@ -83,6 +84,9 @@ enum Subcommand {
 
     /// Run a code review non-interactively.
     Review(ReviewArgs),
+
+    /// Run the Council workflow (review, fix, apply).
+    Council(council_cmd::CouncilCli),
 
     /// Manage login.
     Login(LoginCommand),
@@ -469,6 +473,9 @@ async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()
                 root_config_overrides.clone(),
             );
             codex_exec::run_main(exec_cli, codex_linux_sandbox_exe).await?;
+        }
+        Some(Subcommand::Council(council_cli)) => {
+            council_cmd::run(council_cli).await?;
         }
         Some(Subcommand::McpServer) => {
             codex_mcp_server::run_main(codex_linux_sandbox_exe, root_config_overrides).await?;

@@ -1152,6 +1152,7 @@ dependencies = [
  "codex-cloud-tasks",
  "codex-common",
  "codex-core",
+ "codex-council",
  "codex-exec",
  "codex-execpolicy",
  "codex-login",
@@ -1353,6 +1354,22 @@ dependencies = [
  "wildmatch",
  "wiremock",
  "zstd",
+]
+
+[[package]]
+name = "codex-council"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "codex-apply-patch",
+ "codex-common",
+ "codex-git",
+ "ignore",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "walkdir",
 ]
 
 [[package]]

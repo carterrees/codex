@@ -46,6 +46,7 @@ members = [
     "utils/string",
     "codex-client",
     "codex-api",
+    "council",
 ]
 resolver = "2"
 
@@ -73,6 +74,7 @@ codex-chatgpt = { path = "chatgpt" }
 codex-client = { path = "codex-client" }
 codex-common = { path = "common" }
 codex-core = { path = "core" }
+codex-council = { path = "council" }
 codex-exec = { path = "exec" }
 codex-execpolicy = { path = "execpolicy" }
 codex-feedback = { path = "feedback" }
