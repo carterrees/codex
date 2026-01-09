@@ -7,6 +7,7 @@ use crate::exec_cell::output_lines;
 use crate::exec_cell::spinner;
 use crate::exec_command::relativize_to_home;
 use crate::exec_command::strip_bash_lc_and_escape;
+use crate::frames::FRAMES_COUNCIL;
 use crate::markdown::append_markdown;
 use crate::render::line_utils::line_to_static;
 use crate::render::line_utils::prefix_lines;
@@ -15,18 +16,23 @@ use crate::style::user_message_style;
 use crate::text_formatting::format_and_truncate_tool_result;
 use crate::text_formatting::truncate_text;
 use crate::tooltips;
+use crate::ui_consts::CHANGE_MODEL_HINT_COMMAND;
+use crate::ui_consts::CHANGE_MODEL_HINT_EXPLANATION;
 use crate::ui_consts::LIVE_PREFIX_COLS;
 use crate::update_action::UpdateAction;
 use crate::version::CODEX_CLI_VERSION;
 use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_line;
 use base64::Engine;
+use codex_ansi_escape::ansi_escape_line;
 use codex_common::format_env_display::format_env_display;
 use codex_core::config::Config;
 use codex_core::config::types::McpServerTransportConfig;
 use codex_core::protocol::FileChange;
 use codex_core::protocol::McpAuthStatus;
 use codex_core::protocol::McpInvocation;
+use codex_core::protocol::NetworkAccess;
+use codex_core::protocol::SandboxPolicy;
 use codex_core::protocol::SessionConfiguredEvent;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::plan_tool::PlanItemArg;
@@ -878,6 +884,8 @@ pub(crate) fn new_session_info(
         reasoning_effort,
         config.cwd.clone(),
         CODEX_CLI_VERSION,
+        config,
+        event.session_id.to_string(),
     );
     let mut parts: Vec<Box<dyn HistoryCell>> = vec![Box::new(header)];
 
@@ -945,6 +953,13 @@ struct SessionHeaderHistoryCell {
     model: String,
     reasoning_effort: Option<ReasoningEffortConfig>,
     directory: PathBuf,
+    council_chair_model: String,
+    council_critic_gpt_model: String,
+    council_critic_gemini_model: String,
+    council_implementer_model: String,
+    approval: String,
+    sandbox: String,
+    session_id: String,
 }
 
 impl SessionHeaderHistoryCell {
@@ -953,12 +968,36 @@ impl SessionHeaderHistoryCell {
         reasoning_effort: Option<ReasoningEffortConfig>,
         directory: PathBuf,
         version: &'static str,
+        config: &Config,
+        session_id: String,
     ) -> Self {
+        let sandbox = match config.sandbox_policy.get() {
+            SandboxPolicy::DangerFullAccess => "danger-full-access".to_string(),
+            SandboxPolicy::ReadOnly => "read-only".to_string(),
+            SandboxPolicy::WorkspaceWrite { .. } => "workspace-write".to_string(),
+            SandboxPolicy::ExternalSandbox { network_access } => {
+                if matches!(network_access, NetworkAccess::Enabled) {
+                    "external-sandbox (network access enabled)".to_string()
+                } else {
+                    "external-sandbox".to_string()
+                }
+            }
+        };
+        // Use Debug format for approval policy enum (e.g. "OnRequest", "UnlessTrusted")
+        let approval = format!("{:?}", config.approval_policy.get());
+
         Self {
             version,
             model,
             reasoning_effort,
             directory,
+            council_chair_model: config.council_chair_model.clone(),
+            council_critic_gpt_model: config.council_critic_gpt_model.clone(),
+            council_critic_gemini_model: config.council_critic_gemini_model.clone(),
+            council_implementer_model: config.council_implementer_model.clone(),
+            approval,
+            sandbox,
+            session_id,
         }
     }
 
@@ -1009,23 +1048,17 @@ impl HistoryCell for SessionHeaderHistoryCell {
 
         let make_row = |spans: Vec<Span<'static>>| Line::from(spans);
 
-        // Title line rendered inside the box: ">_ OpenAI Codex (vX)"
-        let title_spans: Vec<Span<'static>> = vec![
-            Span::from(">_ ").dim(),
-            Span::from("Codex Council").bold(),
-            Span::from(" ").dim(),
-            Span::from(format!("(v{})", self.version)).dim(),
-        ];
+        // Render ThinThread ASCII Art
+        let mut logo_lines = Vec::new();
+        for line in FRAMES_COUNCIL[0].lines() {
+            logo_lines.push(ansi_escape_line(line));
+        }
 
-        const CHANGE_MODEL_HINT_COMMAND: &str = "/model";
-        const CHANGE_MODEL_HINT_EXPLANATION: &str = " to change";
-        const DIR_LABEL: &str = "directory:";
-        let label_width = DIR_LABEL.len();
-        let model_label = format!(
-            "{model_label:<label_width$}",
-            model_label = "model:",
-            label_width = label_width
-        );
+        const DIR_LABEL: &str = "Directory:";
+        const MODEL_LABEL: &str = "Codex Model:";
+        let label_width = MODEL_LABEL.len().max(DIR_LABEL.len());
+
+        let model_label = format!("{MODEL_LABEL:<label_width$}");
         let reasoning_label = self.reasoning_label();
         let mut model_spans: Vec<Span<'static>> = vec![
             Span::from(format!("{model_label} ")).dim(),
@@ -1046,12 +1079,78 @@ impl HistoryCell for SessionHeaderHistoryCell {
         let dir = self.format_directory(Some(dir_max_width));
         let dir_spans = vec![Span::from(dir_prefix).dim(), Span::from(dir)];
 
-        let lines = vec![
-            make_row(title_spans),
-            make_row(Vec::new()),
-            make_row(model_spans),
-            make_row(dir_spans),
-        ];
+        let mut lines = logo_lines;
+        lines.push(make_row(vec![
+            Span::from(format!("v{}", self.version)).dim(),
+        ]));
+        lines.push(make_row(Vec::new()));
+        lines.push(make_row(model_spans));
+        lines.push(make_row(dir_spans));
+
+        let approval_label = format!("{:<label_width$} ", "Approval:");
+        lines.push(make_row(vec![
+            Span::from(approval_label).dim(),
+            Span::from(self.approval.clone()),
+        ]));
+
+        let sandbox_label = format!("{:<label_width$} ", "Sandbox:");
+        lines.push(make_row(vec![
+            Span::from(sandbox_label).dim(),
+            Span::from(self.sandbox.clone()),
+        ]));
+
+        let session_label = format!("{:<label_width$} ", "Session:");
+        lines.push(make_row(vec![
+            Span::from(session_label).dim(),
+            Span::from(self.session_id.clone()),
+        ]));
+
+        // Council Status in Header
+        lines.push(make_row(Vec::new()));
+
+        let (has_openai, has_gemini) = if cfg!(test) {
+            (false, false)
+        } else {
+            (
+                std::env::var("OPENAI_API_KEY").is_ok(),
+                std::env::var("GEMINI_API_KEY").is_ok(),
+            )
+        };
+
+        let indent: Span<'static> = "            ".into(); // Align with "ThinThread: " (12 chars)
+
+        lines.push(make_row(vec![
+            "ThinThread: ".dim(),
+            "Chair: ".dim(),
+            self.council_chair_model.clone().into(),
+        ]));
+        lines.push(make_row(vec![
+            indent.clone(),
+            "Critics: ".dim(),
+            self.council_critic_gpt_model.clone().into(),
+            " & ".dim(),
+            self.council_critic_gemini_model.clone().into(),
+        ]));
+        lines.push(make_row(vec![
+            indent.clone(),
+            "Writer: ".dim(),
+            self.council_implementer_model.clone().into(),
+        ]));
+        lines.push(make_row(vec![
+            indent,
+            "Keys: ".dim(),
+            if has_openai {
+                "OpenAI ✅".green()
+            } else {
+                "OpenAI ❌".red()
+            },
+            "  ".into(),
+            if has_gemini {
+                "Gemini ✅".green()
+            } else {
+                "Gemini ❌".red()
+            },
+        ]));
 
         with_border(lines)
     }
@@ -2262,23 +2361,26 @@ mod tests {
         insta::assert_snapshot!(rendered);
     }
 
-    #[test]
-    fn session_header_includes_reasoning_level_when_present() {
+    #[tokio::test]
+    async fn session_header_includes_reasoning_level_when_present() {
+        let config = test_config().await;
         let cell = SessionHeaderHistoryCell::new(
             "gpt-4o".to_string(),
             Some(ReasoningEffortConfig::High),
             std::env::temp_dir(),
             "test",
+            &config,
+            "sess-test".to_string(),
         );
 
         let lines = render_lines(&cell.display_lines(80));
         let model_line = lines
             .into_iter()
-            .find(|line| line.contains("model:"))
+            .find(|line| line.contains("Codex Model:"))
             .expect("model line");
 
         assert!(model_line.contains("gpt-4o high"));
-        assert!(model_line.contains("/model to change"));
+        assert!(model_line.contains("/model"));
     }
 
     #[test]

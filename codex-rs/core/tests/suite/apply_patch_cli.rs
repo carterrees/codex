@@ -590,7 +590,7 @@ async fn apply_patch_cli_rejects_path_traversal_outside_workspace(
     assert!(
         out.contains(
             "patch rejected: writing outside of the project; rejected by user approval settings"
-        ),
+        ) || out.contains("path traversal ('..') is not allowed"),
         "expected rejection message for path traversal: {out}"
     );
     assert!(
@@ -643,7 +643,7 @@ async fn apply_patch_cli_rejects_move_path_traversal_outside_workspace(
     assert!(
         out.contains(
             "patch rejected: writing outside of the project; rejected by user approval settings"
-        ),
+        ) || out.contains("path traversal ('..') is not allowed"),
         "expected rejection message for path traversal: {out}"
     );
     assert!(

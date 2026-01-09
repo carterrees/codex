@@ -291,11 +291,17 @@ impl<'a> ChatRequestBuilder<'a> {
             }
         }
 
+        let mut temperature = None;
+        if self.model.contains("gemini-3") || self.model.contains("gpt-5") {
+            temperature = Some(1.0);
+        }
+
         let payload = json!({
             "model": self.model,
             "messages": messages,
             "stream": true,
             "tools": self.tools,
+            "temperature": temperature,
         });
 
         let mut headers = build_conversation_headers(self.conversation_id);

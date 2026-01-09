@@ -22,16 +22,16 @@ use codex_exec::Command as ExecCommand;
 use codex_exec::ReviewArgs;
 use codex_execpolicy::ExecPolicyCheckCommand;
 use codex_responses_api_proxy::Args as ResponsesApiProxyArgs;
-use codex_tui::AppExitInfo;
-use codex_tui::Cli as TuiCli;
-use codex_tui::update_action::UpdateAction;
+use codex_tui2::AppExitInfo;
+use codex_tui2::Cli as TuiCli;
+use codex_tui2::update_action::UpdateAction;
 use codex_tui2 as tui2;
 use owo_colors::OwoColorize;
 use std::path::PathBuf;
 use supports_color::Stream;
 
-mod mcp_cmd;
 mod council_cmd;
+mod mcp_cmd;
 #[cfg(not(windows))]
 mod wsl_paths;
 
@@ -39,13 +39,7 @@ use crate::mcp_cmd::McpCli;
 
 use codex_core::config::Config;
 use codex_core::config::ConfigOverrides;
-use codex_core::config::find_codex_home;
-use codex_core::config::load_config_as_toml_with_cli_overrides;
-use codex_core::features::Feature;
-use codex_core::features::FeatureOverrides;
-use codex_core::features::Features;
 use codex_core::features::is_known_feature_key;
-use codex_utils_absolute_path::AbsolutePathBuf;
 
 /// Codex CLI
 ///
@@ -59,8 +53,8 @@ use codex_utils_absolute_path::AbsolutePathBuf;
     // The executable is sometimes invoked via a platform‑specific name like
     // `codex-x86_64-unknown-linux-musl`, but the help output should always use
     // the generic `codex` command name that users run.
-    bin_name = "codex",
-    override_usage = "codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]"
+    bin_name = "thinthread",
+    override_usage = "thinthread [OPTIONS] [PROMPT]\n       thinthread [OPTIONS] <COMMAND> [ARGS]"
 )]
 struct MultitoolCli {
     #[clap(flatten)]
@@ -84,6 +78,9 @@ enum Subcommand {
 
     /// Run a code review non-interactively.
     Review(ReviewArgs),
+
+    /// Fix a file using Council.
+    Fix(council_cmd::FixArgs),
 
     /// Run the Council workflow (review, fix, apply).
     Council(council_cmd::CouncilCli),
@@ -287,7 +284,7 @@ struct StdioToUdsCommand {
 fn format_exit_messages(exit_info: AppExitInfo, color_enabled: bool) -> Vec<String> {
     let AppExitInfo {
         token_usage,
-        thread_id: conversation_id,
+        conversation_id,
         ..
     } = exit_info;
 
@@ -301,7 +298,7 @@ fn format_exit_messages(exit_info: AppExitInfo, color_enabled: bool) -> Vec<Stri
     )];
 
     if let Some(session_id) = conversation_id {
-        let resume_cmd = format!("codex resume {session_id}");
+        let resume_cmd = format!("thinthread resume {session_id}");
         let command = if color_enabled {
             resume_cmd.cyan().to_string()
         } else {
@@ -466,13 +463,28 @@ async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()
             codex_exec::run_main(exec_cli, codex_linux_sandbox_exe).await?;
         }
         Some(Subcommand::Review(review_args)) => {
-            let mut exec_cli = ExecCli::try_parse_from(["codex", "exec"])?;
+            // If the user provided a path (via the prompt arg), and it exists, use the Council workflow.
+            // This provides the cleaner UI and "Next command" flow.
+            if let Some(prompt) = &review_args.prompt {
+                let path = PathBuf::from(prompt);
+                if path.exists() {
+                    council_cmd::run_review_for_path(path).await?;
+                    return Ok(());
+                } else {
+                    eprintln!("ℹ️  Target '{}' not found locally; falling back to Chat Agent.", prompt);
+                }
+            }
+
+            let mut exec_cli = ExecCli::try_parse_from(["thinthread", "exec"])?;
             exec_cli.command = Some(ExecCommand::Review(review_args));
             prepend_config_flags(
                 &mut exec_cli.config_overrides,
                 root_config_overrides.clone(),
             );
             codex_exec::run_main(exec_cli, codex_linux_sandbox_exe).await?;
+        }
+        Some(Subcommand::Fix(args)) => {
+            council_cmd::run_fix_args(args).await?;
         }
         Some(Subcommand::Council(council_cli)) => {
             council_cmd::run(council_cli).await?;
@@ -673,45 +685,15 @@ fn prepend_config_flags(
         .splice(0..0, cli_config_overrides.raw_overrides);
 }
 
-/// Run the interactive Codex TUI, dispatching to either the legacy implementation or the
-/// experimental TUI v2 shim based on feature flags resolved from config.
+/// Run the interactive Codex TUI.
 async fn run_interactive_tui(
     interactive: TuiCli,
     codex_linux_sandbox_exe: Option<PathBuf>,
 ) -> std::io::Result<AppExitInfo> {
-    if is_tui2_enabled(&interactive).await? {
-        let result = tui2::run_main(interactive.into(), codex_linux_sandbox_exe).await?;
-        Ok(result.into())
-    } else {
-        codex_tui::run_main(interactive, codex_linux_sandbox_exe).await
-    }
+    tui2::run_main(interactive, codex_linux_sandbox_exe).await
 }
 
-/// Returns `Ok(true)` when the resolved configuration enables the `tui2` feature flag.
-///
-/// This performs a lightweight config load (honoring the same precedence as the lower-level TUI
-/// bootstrap: `$CODEX_HOME`, config.toml, profile, and CLI `-c` overrides) solely to decide which
-/// TUI frontend to launch. The full configuration is still loaded later by the interactive TUI.
-async fn is_tui2_enabled(cli: &TuiCli) -> std::io::Result<bool> {
-    let raw_overrides = cli.config_overrides.raw_overrides.clone();
-    let overrides_cli = codex_common::CliConfigOverrides { raw_overrides };
-    let cli_kv_overrides = overrides_cli
-        .parse_overrides()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
 
-    let codex_home = find_codex_home()?;
-    let cwd = cli.cwd.clone();
-    let config_cwd = match cwd.as_deref() {
-        Some(path) => AbsolutePathBuf::from_absolute_path(path)?,
-        None => AbsolutePathBuf::current_dir()?,
-    };
-    let config_toml =
-        load_config_as_toml_with_cli_overrides(&codex_home, &config_cwd, cli_kv_overrides).await?;
-    let config_profile = config_toml.get_config_profile(cli.config_profile.clone())?;
-    let overrides = FeatureOverrides::default();
-    let features = Features::from_config(&config_toml, &config_profile, overrides);
-    Ok(features.enabled(Feature::Tui2))
-}
 
 /// Build the final `TuiCli` for a `codex resume` invocation.
 fn finalize_resume_interactive(
@@ -788,7 +770,7 @@ fn merge_resume_cli_flags(interactive: &mut TuiCli, resume_cli: TuiCli) {
 
 fn print_completion(cmd: CompletionCommand) {
     let mut app = MultitoolCli::command();
-    let name = "codex";
+    let name = "thinthread";
     generate(cmd.shell, &mut app, name, &mut std::io::stdout());
 }
 
@@ -837,7 +819,7 @@ mod tests {
         };
         AppExitInfo {
             token_usage,
-            thread_id: conversation.map(ThreadId::from_string).map(Result::unwrap),
+            conversation_id: conversation.map(ThreadId::from_string).map(Result::unwrap),
             update_action: None,
         }
     }
@@ -846,7 +828,7 @@ mod tests {
     fn format_exit_messages_skips_zero_usage() {
         let exit_info = AppExitInfo {
             token_usage: TokenUsage::default(),
-            thread_id: None,
+            conversation_id: None,
             update_action: None,
         };
         let lines = format_exit_messages(exit_info, false);

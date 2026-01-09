@@ -19,6 +19,15 @@ use codex_protocol::openai_models::ReasoningEffort;
 pub(crate) enum AppEvent {
     CodexEvent(Event),
 
+    CouncilJobEvent(String, codex_council::CouncilEvent),
+
+    StartCouncilJob {
+        mode: codex_council::CouncilMode,
+        target: PathBuf,
+    },
+    CancelCouncilJob(String),
+    ApplyCouncilJob(String),
+
     /// Start a new session.
     NewSession,
 

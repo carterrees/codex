@@ -7,8 +7,8 @@ Codex Council is an advanced, automated code review and repair workflow built in
 The Council consists of specialized roles filled by different LLMs:
 
 1.  **Critics**: Multiple models (e.g., `gpt-5.1-codex`, `gemini-3-pro-preview`) analyze the code in parallel to identify bugs, security flaws, and style violations.
-2.  **Chair**: A high-reasoning model (e.g., `gpt-5.2`) synthesizes the critiques and formulates a robust fix plan.
-3.  **Implementer**: A fast, capable coding model (e.g., `gemini-3-flash`) writes the actual patch based on the Chair's plan.
+2.  **Chair**: A high-reasoning model (e.g., `gpt-5.2-2025-12-11`) synthesizes the critiques and formulates a robust fix plan.
+3.  **Implementer**: A fast, capable coding model (e.g., `gemini-3-flash-preview`) writes the actual patch based on the Chair's plan.
 
 The process runs in an isolated **git worktree** to ensure safety and allow for "apply and verify" steps without messing up your working directory until the fix is proven.
 

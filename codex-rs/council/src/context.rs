@@ -1,16 +1,22 @@
-use crate::types::{ContextBundle, FileSnapshot, Snippet, TruncationInfo};
+use crate::types::ContextBundle;
+use crate::types::FileSnapshot;
+use crate::types::Snippet;
+use crate::types::TruncationInfo;
 use anyhow::Result;
 use ignore::WalkBuilder;
-use regex::Regex;
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
-use tracing::warn;
 use lazy_static::lazy_static;
+use regex::Regex;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+use tracing::warn;
 
 lazy_static! {
     // Basic Python import regex: import x, from x import y
-    static ref PYTHON_IMPORT_RE: Regex = Regex::new(r"(?m)^(?:from|import)\s+([\w\.]+)").unwrap();
+    static ref PYTHON_IMPORT_RE: Regex = Regex::new(r"(?m)^(?:from|import)\s+([\w\.]+)")
+        .unwrap_or_else(|err| panic!("invalid PYTHON_IMPORT_RE regex: {err}"));
 }
 
 pub struct ContextBuilder {
@@ -36,6 +42,8 @@ impl ContextBuilder {
                 truncation_info: TruncationInfo::default(),
             };
 
+            let targets_set: HashSet<PathBuf> = targets.iter().cloned().collect();
+            let mut related_set: HashSet<PathBuf> = HashSet::new();
             let mut target_modules = HashSet::new();
 
             // 1. Process Targets
@@ -54,20 +62,42 @@ impl ContextBuilder {
 
                     // 2. Find Imports (Related Files)
                     // Only for Python for now
-                    if target.extension().map_or(false, |e| e == "py") {
+                    if target.extension().is_some_and(|e| e == "py") {
                         let imports = extract_imports(&content);
                         for imp in imports {
                             if let Some(path) = resolve_module(&repo_root, &imp) {
-                                // Avoid duplicates
-                                if !targets.contains(&path) && !bundle.related_files.iter().any(|f| f.path == path) {
-                                     if let Ok(c) = fs::read_to_string(&path) {
-                                        bundle.related_files.push(FileSnapshot {
-                                            path,
-                                            content: c, // TODO: Add truncation logic later
-                                            is_truncated: false, 
-                                        });
-                                     }
+                                if targets_set.contains(&path)
+                                    || bundle.related_files.len() >= 25
+                                    || !related_set.insert(path.clone())
+                                {
+                                    continue;
                                 }
+
+                                if let Ok(c) = fs::read_to_string(&path) {
+                                    bundle.related_files.push(FileSnapshot {
+                                        path,
+                                        content: c, // TODO: Add truncation logic later
+                                        is_truncated: false,
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    if target.extension().is_some_and(|e| e == "rs") {
+                        for path in rust_related_paths(&repo_root, target) {
+                            if targets_set.contains(&path)
+                                || bundle.related_files.len() >= 25
+                                || !related_set.insert(path.clone())
+                            {
+                                continue;
+                            }
+                            if let Ok(c) = fs::read_to_string(&path) {
+                                bundle.related_files.push(FileSnapshot {
+                                    path,
+                                    content: c,
+                                    is_truncated: false,
+                                });
                             }
                         }
                     }
@@ -83,7 +113,8 @@ impl ContextBuilder {
             bundle.test_files = find_tests(&repo_root, &targets);
 
             Ok(bundle)
-        }).await?
+        })
+        .await?
     }
 }
 
@@ -91,7 +122,10 @@ fn file_to_module(repo_root: &Path, path: &Path) -> Option<String> {
     let rel = path.strip_prefix(repo_root).ok()?;
     let stem = rel.file_stem()?.to_string_lossy();
     let parent = rel.parent()?;
-    let mut components: Vec<String> = parent.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    let mut components: Vec<String> = parent
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
     components.push(stem.into_owned());
     // Remove empty components (e.g. if parent was empty)
     let components: Vec<String> = components.into_iter().filter(|s| !s.is_empty()).collect();
@@ -99,7 +133,8 @@ fn file_to_module(repo_root: &Path, path: &Path) -> Option<String> {
 }
 
 fn extract_imports(content: &str) -> Vec<String> {
-    PYTHON_IMPORT_RE.captures_iter(content)
+    PYTHON_IMPORT_RE
+        .captures_iter(content)
         .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
         .collect()
 }
@@ -110,7 +145,7 @@ fn resolve_module(repo_root: &Path, module: &str) -> Option<PathBuf> {
     for part in &parts {
         current.push(part);
     }
-    
+
     // Check for .py
     let py_path = current.with_extension("py");
     if py_path.exists() {
@@ -126,27 +161,31 @@ fn resolve_module(repo_root: &Path, module: &str) -> Option<PathBuf> {
     None
 }
 
-fn find_reverse_deps(repo_root: &Path, modules: &HashSet<String>) -> HashMap<PathBuf, Vec<Snippet>> {
+fn find_reverse_deps(
+    repo_root: &Path,
+    modules: &HashSet<String>,
+) -> HashMap<PathBuf, Vec<Snippet>> {
     let mut results = HashMap::new();
     let walker = WalkBuilder::new(repo_root)
         .hidden(true) // Skip hidden files
         .git_ignore(true)
         .build();
-    
+
     for result in walker {
         match result {
             Ok(entry) => {
                 if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
                     let path = entry.path();
                     // Naive extension filter
-                     if let Some(ext) = path.extension() {
-                         let ext_str = ext.to_string_lossy();
-                         if ext_str != "py" && ext_str != "rs" && ext_str != "ts" && ext_str != "js" {
-                             continue; 
-                         }
-                     } else {
-                         continue;
-                     }
+                    if let Some(ext) = path.extension() {
+                        let ext_str = ext.to_string_lossy();
+                        if ext_str != "py" && ext_str != "rs" && ext_str != "ts" && ext_str != "js"
+                        {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
 
                     if let Ok(content) = fs::read_to_string(path) {
                         for module in modules {
@@ -189,33 +228,122 @@ fn find_tests(repo_root: &Path, targets: &[PathBuf]) -> Vec<FileSnapshot> {
             format!("{}_test.py", stem),
             format!("test_{}.rs", stem), // Rust
         ];
-        
+
         // 1. Sibling check
         if let Some(parent) = target.parent() {
             for candidate in &candidates {
                 let sibling = parent.join(candidate);
-                if sibling.exists() {
-                     if let Ok(c) = fs::read_to_string(&sibling) {
-                        tests.push(FileSnapshot { path: sibling, content: c, is_truncated: false });
-                    }
+                if sibling.exists()
+                    && let Ok(c) = fs::read_to_string(&sibling)
+                {
+                    tests.push(FileSnapshot {
+                        path: sibling,
+                        content: c,
+                        is_truncated: false,
+                    });
                 }
             }
         }
-        
+
         // 2. 'tests' folder check (if structure is src/foo.py -> tests/test_foo.py)
         // Assume parallel structure or flat tests folder?
         // Simple check: repo_root/tests/test_foo.py
         let tests_dir = repo_root.join("tests");
         if tests_dir.exists() {
-             for candidate in &candidates {
+            for candidate in &candidates {
                 let test_path = tests_dir.join(candidate);
-                if test_path.exists() {
-                     if let Ok(c) = fs::read_to_string(&test_path) {
-                        tests.push(FileSnapshot { path: test_path, content: c, is_truncated: false });
-                    }
+                if test_path.exists()
+                    && let Ok(c) = fs::read_to_string(&test_path)
+                {
+                    tests.push(FileSnapshot {
+                        path: test_path,
+                        content: c,
+                        is_truncated: false,
+                    });
                 }
             }
         }
     }
     tests
+}
+
+fn rust_related_paths(repo_root: &Path, target: &Path) -> Vec<PathBuf> {
+    let Some(crate_root) = find_nearest_ancestor_with_file(repo_root, target, "Cargo.toml") else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    out.push(crate_root.join("Cargo.toml"));
+
+    let src_dir = crate_root.join("src");
+    for file in ["lib.rs", "main.rs"] {
+        let p = src_dir.join(file);
+        if p.exists() {
+            out.push(p);
+        }
+    }
+
+    // Include module chain (mod.rs) from target up to src/
+    if let Some(parent) = target.parent()
+        && parent.starts_with(&src_dir)
+    {
+        for dir in parent.ancestors() {
+            if !dir.starts_with(&src_dir) {
+                break;
+            }
+            let mod_rs = dir.join("mod.rs");
+            if mod_rs.exists() {
+                out.push(mod_rs);
+            }
+            if dir == src_dir {
+                break;
+            }
+        }
+
+        // Include siblings in the same directory (bounded).
+        if let Ok(entries) = fs::read_dir(parent) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path == target {
+                    continue;
+                }
+                if path.extension().is_some_and(|e| e == "rs") && path.is_file() {
+                    out.push(path);
+                    if out.len() >= 20 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    out
+}
+
+fn find_nearest_ancestor_with_file(
+    repo_root: &Path,
+    start: &Path,
+    file_name: &str,
+) -> Option<PathBuf> {
+    let mut dir = if start.is_dir() {
+        start
+    } else {
+        start.parent()?
+    };
+
+    loop {
+        if !dir.starts_with(repo_root) {
+            return None;
+        }
+
+        if dir.join(file_name).exists() {
+            return Some(dir.to_path_buf());
+        }
+
+        if dir == repo_root {
+            return None;
+        }
+
+        dir = dir.parent()?;
+    }
 }

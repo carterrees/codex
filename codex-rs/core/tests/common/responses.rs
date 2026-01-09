@@ -698,7 +698,18 @@ pub async fn start_mock_server() -> MockServer {
     // Provide a default `/models` response so tests remain hermetic when the client queries it.
     let _ = mount_models_once(&server, ModelsResponse { models: Vec::new() }).await;
 
-    server
+    // Wait for the server to be ready to accept connections.
+    let client = reqwest::Client::new();
+    let health_check_url = format!("{}/models", server.uri());
+    
+    for _ in 0..200 {
+        if client.get(&health_check_url).send().await.is_ok() {
+            return server;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    panic!("Mock server failed to start accepting connections within timeout");
 }
 
 // todo(aibrahim): remove this and use our search matching patterns directly

@@ -4,6 +4,7 @@ mod seek_sequence;
 mod standalone_executable;
 
 use std::collections::HashMap;
+use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -203,6 +204,63 @@ pub fn apply_patch(
     Ok(())
 }
 
+/// Applies the patch relative to `workdir` without mutating the process working directory.
+///
+/// This is useful in async/concurrent contexts where `std::env::set_current_dir` would be unsafe.
+pub fn apply_patch_in_dir(
+    workdir: &Path,
+    patch: &str,
+    stdout: &mut impl std::io::Write,
+    stderr: &mut impl std::io::Write,
+) -> Result<(), ApplyPatchError> {
+    if !workdir.is_absolute() {
+        return Err(ApplyPatchError::IoError(IoError {
+            context: "Invalid patch workdir".to_string(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "workdir must be an absolute path",
+            ),
+        }));
+    }
+    if !workdir.is_dir() {
+        let workdir_display = workdir.display();
+        return Err(ApplyPatchError::IoError(IoError {
+            context: format!("Invalid patch workdir '{workdir_display}'"),
+            source: std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "workdir is not a directory",
+            ),
+        }));
+    }
+
+    let hunks = match parse_patch(patch) {
+        Ok(source) => source.hunks,
+        Err(e) => {
+            match &e {
+                InvalidPatchError(message) => {
+                    writeln!(stderr, "Invalid patch: {message}").map_err(ApplyPatchError::from)?;
+                }
+                InvalidHunkError {
+                    message,
+                    line_number,
+                } => {
+                    writeln!(
+                        stderr,
+                        "Invalid patch hunk on line {line_number}: {message}"
+                    )
+                    .map_err(ApplyPatchError::from)?;
+                }
+            }
+            return Err(ApplyPatchError::ParseError(e));
+        }
+    };
+
+    let hunks = resolve_hunks_in_dir(workdir, &hunks)?;
+    apply_hunks(&hunks, stdout, stderr)?;
+
+    Ok(())
+}
+
 /// Applies hunks and continues to update stdout/stderr
 pub fn apply_hunks(
     hunks: &[Hunk],
@@ -254,6 +312,82 @@ pub fn apply_hunks(
             }
         }
     }
+}
+
+fn resolve_hunks_in_dir(workdir: &Path, hunks: &[Hunk]) -> Result<Vec<Hunk>, ApplyPatchError> {
+    let mut resolved = Vec::with_capacity(hunks.len());
+    for hunk in hunks {
+        let resolved_hunk = match hunk {
+            Hunk::AddFile { path, contents } => Hunk::AddFile {
+                path: resolve_patch_path_in_dir(workdir, path)?,
+                contents: contents.clone(),
+            },
+            Hunk::DeleteFile { path } => Hunk::DeleteFile {
+                path: resolve_patch_path_in_dir(workdir, path)?,
+            },
+            Hunk::UpdateFile {
+                path,
+                move_path,
+                chunks,
+            } => Hunk::UpdateFile {
+                path: resolve_patch_path_in_dir(workdir, path)?,
+                move_path: move_path
+                    .as_ref()
+                    .map(|p| resolve_patch_path_in_dir(workdir, p))
+                    .transpose()?,
+                chunks: chunks.clone(),
+            },
+        };
+        resolved.push(resolved_hunk);
+    }
+    Ok(resolved)
+}
+
+pub(crate) fn resolve_patch_path_in_dir(
+    workdir: &Path,
+    path: &Path,
+) -> Result<PathBuf, ApplyPatchError> {
+    if path.as_os_str().is_empty() {
+        return Err(ApplyPatchError::IoError(IoError {
+            context: "Invalid patch path".to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::InvalidInput, "path is empty"),
+        }));
+    }
+
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) => {
+                return Err(ApplyPatchError::IoError(IoError {
+                    context: format!("Invalid patch path '{}'", path.display()),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "path prefixes are not allowed",
+                    ),
+                }));
+            }
+            Component::RootDir => {
+                return Err(ApplyPatchError::IoError(IoError {
+                    context: format!("Invalid patch path '{}'", path.display()),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "absolute paths are not allowed",
+                    ),
+                }));
+            }
+            Component::ParentDir => {
+                return Err(ApplyPatchError::IoError(IoError {
+                    context: format!("Invalid patch path '{}'", path.display()),
+                    source: std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "path traversal ('..') is not allowed",
+                    ),
+                }));
+            }
+            Component::CurDir | Component::Normal(_) => {}
+        }
+    }
+
+    Ok(workdir.join(path))
 }
 
 /// Applies each parsed patch hunk to the filesystem.

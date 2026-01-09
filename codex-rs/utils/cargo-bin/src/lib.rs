@@ -31,6 +31,7 @@ pub enum CargoBinError {
 /// them to project-relative paths (e.g. `buck-out/...`). Those paths break if a
 /// test later changes its working directory. This helper makes the path
 /// absolute up-front so callers can safely `chdir` afterwards.
+#[allow(deprecated)]
 pub fn cargo_bin(name: &str) -> Result<PathBuf, CargoBinError> {
     let env_keys = cargo_bin_env_keys(name);
     for key in &env_keys {

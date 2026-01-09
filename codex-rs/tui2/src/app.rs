@@ -101,16 +101,6 @@ pub struct AppExitInfo {
     pub session_lines: Vec<String>,
 }
 
-impl From<AppExitInfo> for codex_tui::AppExitInfo {
-    fn from(info: AppExitInfo) -> Self {
-        codex_tui::AppExitInfo {
-            token_usage: info.token_usage,
-            thread_id: info.conversation_id,
-            update_action: info.update_action.map(Into::into),
-        }
-    }
-}
-
 fn session_summary(
     token_usage: TokenUsage,
     conversation_id: Option<ThreadId>,
@@ -126,6 +116,20 @@ fn session_summary(
         usage_line,
         resume_command,
     })
+}
+
+fn find_git_root(start: &Path) -> Option<PathBuf> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(start)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let path = String::from_utf8(output.stdout).ok()?.trim().to_string();
+        Some(PathBuf::from(path))
+    } else {
+        None
+    }
 }
 
 fn errors_for_cwd(cwd: &Path, response: &ListSkillsResponseEvent) -> Vec<SkillErrorInfo> {
@@ -381,6 +385,9 @@ pub(crate) struct App {
 
     // One-shot suppression of the next world-writable scan after user confirmation.
     skip_world_writable_scan_once: bool,
+
+    // ThinThread
+    pub(crate) council_job_manager: crate::council_job::CouncilJobManager,
 }
 impl App {
     async fn shutdown_current_conversation(&mut self) {
@@ -526,7 +533,17 @@ impl App {
             pending_update_action: None,
             suppress_shutdown_complete: false,
             skip_world_writable_scan_once: false,
+            council_job_manager: crate::council_job::CouncilJobManager::new(),
         };
+
+        // Cleanup old council jobs
+        let cleanup_root = app.config.cwd.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = codex_council::cleanup_old_jobs(cleanup_root).await {
+                tracing::warn!("Failed to cleanup old council jobs: {}", e);
+            }
+        });
 
         // On startup, if Agent mode (workspace-write) or ReadOnly is active, warn about world-writable dirs on Windows.
         #[cfg(target_os = "windows")]
@@ -1345,8 +1362,108 @@ impl App {
         Some(TranscriptSelectionPoint { line_index, column })
     }
 
+    fn insert_history_cell(&mut self, tui: &mut tui::Tui, cell: Box<dyn HistoryCell>) {
+        let cell: Arc<dyn HistoryCell> = cell.into();
+        if let Some(Overlay::Transcript(transcript)) = &mut self.overlay {
+            transcript.insert_cell(cell.clone());
+            tui.frame_requester().schedule_frame();
+        }
+        self.transcript_cells.push(cell.clone());
+        if self.overlay.is_some() {
+            self.deferred_history_cells.push(cell);
+        }
+    }
+
     async fn handle_event(&mut self, tui: &mut tui::Tui, event: AppEvent) -> Result<bool> {
         match event {
+            AppEvent::StartCouncilJob { mode, target } => {
+                let repo_root = find_git_root(&self.config.cwd).unwrap_or_else(|| self.config.cwd.clone());
+                let config = codex_council::CouncilConfig {
+                    repo_root,
+                    prompt_version: "v2".to_string(),
+                    chair_model: self.config.council_chair_model.clone(),
+                    critic_gpt_model: self.config.council_critic_gpt_model.clone(),
+                    critic_gemini_model: self.config.council_critic_gemini_model.clone(),
+                    implementer_model: self.config.council_implementer_model.clone(),
+                };
+                match self
+                    .council_job_manager
+                    .spawn_job(mode, target, config, self.app_event_tx.clone().app_event_tx)
+                    .await
+                {
+                    Ok(job_id) => {
+                        self.chat_widget
+                            .add_info_message(format!("Started Council job {job_id}"), None);
+                    }
+                    Err(e) => {
+                        self.chat_widget
+                            .add_error_message(format!("Failed to start job: {e}"));
+                    }
+                }
+            }
+            AppEvent::CancelCouncilJob(job_id) => {
+                if self.council_job_manager.active_job_id().as_deref() == Some(&job_id) {
+                    self.council_job_manager.cancel_active_job();
+                    self.chat_widget
+                        .add_info_message("Job cancellation requested.".to_string(), None);
+                } else {
+                    self.chat_widget
+                        .add_error_message("Job not running or ID mismatch.".to_string());
+                }
+            }
+            AppEvent::ApplyCouncilJob(job_id) => {
+                let repo_root = self.config.cwd.clone();
+                match self
+                    .council_job_manager
+                    .apply_job(&job_id, repo_root.as_path())
+                    .await
+                {
+                    Ok(_) => {
+                        self.chat_widget.add_info_message(
+                            format!("Successfully applied patch from job {job_id}."),
+                            None,
+                        );
+                    }
+                    Err(e) => {
+                        self.chat_widget
+                            .add_error_message(format!("Failed to apply patch: {e}"));
+                    }
+                }
+            }
+            AppEvent::CouncilJobEvent(job_id, event) => {
+                if let codex_council::CouncilEvent::JobStarted {
+                    mode,
+                    target,
+                    head_sha,
+                    repo_dirty,
+                    ..
+                } = &event
+                {
+                    let cell = crate::council_progress_cell::CouncilProgressCell::new(
+                        job_id,
+                        *mode,
+                        target.clone(),
+                        head_sha.clone(),
+                        *repo_dirty,
+                    );
+                    self.insert_history_cell(tui, Box::new(cell));
+                } else {
+                    for cell in &self.transcript_cells {
+                        if let Some(c) =
+                            cell.as_any()
+                                .downcast_ref::<crate::council_progress_cell::CouncilProgressCell>()
+                            && c.job_id == job_id
+                        {
+                            c.handle_event(event.clone());
+                            tui.frame_requester().schedule_frame();
+                            break;
+                        }
+                    }
+                    if let codex_council::CouncilEvent::JobFinished { .. } = &event {
+                        self.council_job_manager.on_job_finished(&job_id);
+                    }
+                }
+            }
             AppEvent::NewSession => {
                 let summary = session_summary(
                     self.chat_widget.token_usage(),
@@ -1448,15 +1565,7 @@ impl App {
                 tui.frame_requester().schedule_frame();
             }
             AppEvent::InsertHistoryCell(cell) => {
-                let cell: Arc<dyn HistoryCell> = cell.into();
-                if let Some(Overlay::Transcript(transcript)) = &mut self.overlay {
-                    transcript.insert_cell(cell.clone());
-                    tui.frame_requester().schedule_frame();
-                }
-                self.transcript_cells.push(cell.clone());
-                if self.overlay.is_some() {
-                    self.deferred_history_cells.push(cell);
-                }
+                self.insert_history_cell(tui, cell);
             }
             AppEvent::StartCommitAnimation => {
                 if self
@@ -2117,6 +2226,7 @@ mod tests {
             current_model,
             active_profile: None,
             file_search,
+            council_job_manager: crate::council_job::CouncilJobManager::new(),
             transcript_cells: Vec::new(),
             transcript_view_cache: TranscriptViewCache::new(),
             transcript_scroll: TranscriptScroll::default(),
@@ -2170,6 +2280,7 @@ mod tests {
                 current_model,
                 active_profile: None,
                 file_search,
+                council_job_manager: crate::council_job::CouncilJobManager::new(),
                 transcript_cells: Vec::new(),
                 transcript_view_cache: TranscriptViewCache::new(),
                 transcript_scroll: TranscriptScroll::default(),

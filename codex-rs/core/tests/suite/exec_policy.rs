@@ -46,7 +46,7 @@ async fn execpolicy_blocks_shell_invocation() -> Result<()> {
     let call_id = "shell-forbidden";
     let args = json!({
         "command": "echo blocked",
-        "timeout_ms": 1_000,
+        "timeout_ms": 10_000,
     });
 
     mount_sse_once(

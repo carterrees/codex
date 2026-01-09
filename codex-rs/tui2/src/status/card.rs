@@ -35,8 +35,10 @@ use super::rate_limits::StatusRateLimitValue;
 use super::rate_limits::compose_rate_limit_data;
 use super::rate_limits::format_status_limit_summary;
 use super::rate_limits::render_status_limit_progress_bar;
+use crate::frames::FRAMES_COUNCIL;
 use crate::wrapping::RtOptions;
 use crate::wrapping::word_wrap_lines;
+use codex_ansi_escape::ansi_escape_line;
 use codex_core::AuthManager;
 
 #[derive(Debug, Clone)]
@@ -66,6 +68,10 @@ struct StatusHistoryCell {
     session_id: Option<String>,
     token_usage: StatusTokenUsageData,
     rate_limits: StatusRateLimitData,
+    council_chair_model: String,
+    council_critic_gpt_model: String,
+    council_critic_gemini_model: String,
+    council_implementer_model: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -161,6 +167,10 @@ impl StatusHistoryCell {
             session_id,
             token_usage,
             rate_limits,
+            council_chair_model: config.council_chair_model.clone(),
+            council_critic_gpt_model: config.council_critic_gpt_model.clone(),
+            council_critic_gemini_model: config.council_critic_gemini_model.clone(),
+            council_implementer_model: config.council_implementer_model.clone(),
         }
     }
 
@@ -306,11 +316,15 @@ impl StatusHistoryCell {
 impl HistoryCell for StatusHistoryCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let mut lines: Vec<Line<'static>> = Vec::new();
+
+        // Render the "ThinThread" ASCII art (static first frame)
+        let logo_lines = FRAMES_COUNCIL[0].lines();
+        for line in logo_lines {
+            lines.push(ansi_escape_line(line));
+        }
+
         lines.push(Line::from(vec![
-            Span::from(format!("{}>_ ", FieldFormatter::INDENT)).dim(),
-            Span::from("Codex Council").bold(),
-            Span::from(" ").dim(),
-            Span::from(format!("(v{CODEX_CLI_VERSION})")).dim(),
+            Span::from(format!("v{CODEX_CLI_VERSION}")).dim(),
         ]));
         lines.push(Line::from(Vec::<Span<'static>>::new()));
 
@@ -331,11 +345,17 @@ impl HistoryCell for StatusHistoryCell {
             }
         });
 
-        let mut labels: Vec<String> =
-            vec!["Model", "Directory", "Approval", "Sandbox", "Agents.md"]
-                .into_iter()
-                .map(str::to_string)
-                .collect();
+        let mut labels: Vec<String> = vec![
+            "Model",
+            "Directory",
+            "Approval",
+            "Sandbox",
+            "Agents.md",
+            "ThinThread",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
         let mut seen: BTreeSet<String> = labels.iter().cloned().collect();
 
         if account_value.is_some() {
@@ -384,6 +404,46 @@ impl HistoryCell for StatusHistoryCell {
         lines.push(formatter.line("Approval", vec![Span::from(self.approval.clone())]));
         lines.push(formatter.line("Sandbox", vec![Span::from(self.sandbox.clone())]));
         lines.push(formatter.line("Agents.md", vec![Span::from(self.agents_summary.clone())]));
+
+        // Council Status
+        let (has_openai, has_gemini) = if cfg!(test) {
+            (false, false)
+        } else {
+            (
+                std::env::var("OPENAI_API_KEY").is_ok(),
+                std::env::var("GEMINI_API_KEY").is_ok(),
+            )
+        };
+
+        lines.push(formatter.line("ThinThread", vec![Span::from("Active (v2)").green()]));
+        lines.push(formatter.continuation(vec![
+            Span::from("Chair: ").dim(),
+            self.council_chair_model.clone().into(),
+        ]));
+        lines.push(formatter.continuation(vec![
+            Span::from("Critics: ").dim(),
+            self.council_critic_gpt_model.clone().into(),
+            " & ".dim(),
+            self.council_critic_gemini_model.clone().into(),
+        ]));
+        lines.push(formatter.continuation(vec![
+            Span::from("Writer: ").dim(),
+            self.council_implementer_model.clone().into(),
+        ]));
+        lines.push(formatter.continuation(vec![
+            Span::from("Keys: ").dim(),
+            if has_openai {
+                "OpenAI ✅".green()
+            } else {
+                "OpenAI ❌".red()
+            },
+            "  ".into(),
+            if has_gemini {
+                "Gemini ✅".green()
+            } else {
+                "Gemini ❌".red()
+            },
+        ]));
 
         if let Some(account_value) = account_value {
             lines.push(formatter.line("Account", vec![Span::from(account_value)]));

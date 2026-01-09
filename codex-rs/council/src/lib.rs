@@ -1,9 +1,19 @@
+pub mod cleanup;
 pub mod client;
 pub mod context;
+pub mod parsing;
 pub mod prompts;
 pub mod run;
+pub mod runner;
 pub mod types;
 pub mod verify;
 pub mod worktree;
 
-pub use run::{run_fix, run_review, CouncilConfig};
+pub use cleanup::cleanup_old_jobs;
+pub use run::run_fix;
+pub use run::run_review;
+pub use runner::CouncilRunner;
+pub use types::CouncilConfig;
+pub use types::CouncilEvent;
+pub use types::CouncilMode;
+pub use types::JobOutcome;

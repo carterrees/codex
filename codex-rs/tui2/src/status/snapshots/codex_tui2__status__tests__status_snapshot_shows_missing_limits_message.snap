@@ -1,11 +1,19 @@
 ---
 source: tui2/src/status/tests.rs
+assertion_line: 528
 expression: sanitized
 ---
 /status
 
 ╭───────────────────────────────────────────────────────────────────────╮
-│  >_ OpenAI Codex (v0.0.0)                                             │
+│   ________    _     ________                        __                │
+│  /_  __/ /_  (_)___/_  __/ /_  ________  ____ _____/ /                │
+│   / / / __ \/ / __ \/ / / __ \/ ___/ _ \/ __ `/ __  /                 │
+│  / / / / / / / / / / / / / / / /  /  __/ /_/ / /_/ /                  │
+│ /_/ /_/ /_/_/_/ /_/_/ /_/ /_/_/   \___/\__,_/\__,_/                   │
+│                                                                       │
+│                                                                       │
+│ v0.80.0                                                               │
 │                                                                       │
 │ Visit https://chatgpt.com/codex/settings/usage for up-to-date         │
 │ information on rate limits and credits                                │
@@ -15,6 +23,11 @@ expression: sanitized
 │  Approval:         on-request                                         │
 │  Sandbox:          read-only                                          │
 │  Agents.md:        <none>                                             │
+│  ThinThread:       Active (v2)                                        │
+│                    Chair: gpt-5.2-2025-12-11                          │
+│                    Critics: gpt-5.1-codex & gemini-3-pro-preview      │
+│                    Writer: gemini-3-flash-preview                     │
+│                    Keys: OpenAI ❌  Gemini ❌                         │
 │                                                                       │
 │  Token usage:      750 total  (500 input + 250 output)                │
 │  Context window:   100% left (750 used / 272K)                        │

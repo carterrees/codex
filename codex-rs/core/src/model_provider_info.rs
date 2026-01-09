@@ -258,10 +258,9 @@ impl ModelProviderInfo {
     pub fn create_gemini_provider() -> ModelProviderInfo {
         ModelProviderInfo {
             name: GEMINI_PROVIDER_NAME.into(),
-            base_url: Some(
-                std::env::var("GEMINI_BASE_URL")
-                    .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()),
-            ),
+            base_url: Some(std::env::var("GEMINI_BASE_URL").unwrap_or_else(|_| {
+                "https://generativelanguage.googleapis.com/v1beta/openai/".to_string()
+            })),
             env_key: Some("GEMINI_API_KEY".to_string()),
             env_key_instructions: Some(
                 "Get a Gemini API key from https://aistudio.google.com/".to_string(),

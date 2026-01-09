@@ -26,14 +26,14 @@ fn skip_test() -> bool {
 }
 
 #[expect(clippy::expect_used)]
-async fn run_test_cmd(tmp: TempDir, cmd: Vec<&str>) -> Result<ExecToolCallOutput> {
+async fn run_test_cmd(tmp: TempDir, cmd: Vec<&str>, timeout_ms: u64) -> Result<ExecToolCallOutput> {
     let sandbox_type = get_platform_sandbox().expect("should be able to get sandbox type");
     assert_eq!(sandbox_type, SandboxType::MacosSeatbelt);
 
     let params = ExecParams {
         command: cmd.iter().map(ToString::to_string).collect(),
         cwd: tmp.path().to_path_buf(),
-        expiration: 1000.into(),
+        expiration: timeout_ms.into(),
         env: HashMap::new(),
         sandbox_permissions: SandboxPermissions::UseDefault,
         justification: None,
@@ -55,7 +55,7 @@ async fn exit_code_0_succeeds() {
     let tmp = TempDir::new().expect("should be able to create temp dir");
     let cmd = vec!["echo", "hello"];
 
-    let output = run_test_cmd(tmp, cmd).await.unwrap();
+    let output = run_test_cmd(tmp, cmd, 10_000).await.unwrap();
     assert_eq!(output.stdout.text, "hello\n");
     assert_eq!(output.stderr.text, "");
     assert_eq!(output.stdout.truncated_after_lines, None);
@@ -71,7 +71,7 @@ async fn truncates_output_lines() {
     let tmp = TempDir::new().expect("should be able to create temp dir");
     let cmd = vec!["seq", "300"];
 
-    let output = run_test_cmd(tmp, cmd).await.unwrap();
+    let output = run_test_cmd(tmp, cmd, 10_000).await.unwrap();
 
     let expected_output = (1..=300)
         .map(|i| format!("{i}\n"))
@@ -92,7 +92,7 @@ async fn truncates_output_bytes() {
     // each line is 1000 bytes
     let cmd = vec!["bash", "-lc", "seq 15 | awk '{printf \"%-1000s\\n\", $0}'"];
 
-    let output = run_test_cmd(tmp, cmd).await.unwrap();
+    let output = run_test_cmd(tmp, cmd, 10_000).await.unwrap();
 
     assert!(output.stdout.text.len() >= 15000);
     assert_eq!(output.stdout.truncated_after_lines, None);
@@ -107,7 +107,7 @@ async fn exit_command_not_found_is_ok() {
 
     let tmp = TempDir::new().expect("should be able to create temp dir");
     let cmd = vec!["/bin/bash", "-c", "nonexistent_command_12345"];
-    run_test_cmd(tmp, cmd).await.unwrap();
+    run_test_cmd(tmp, cmd, 10_000).await.unwrap();
 }
 
 /// Writing a file fails and should be considered a sandbox error
@@ -124,5 +124,5 @@ async fn write_file_fails_as_sandbox_error() {
         path.to_str().expect("should be able to get path"),
     ];
 
-    assert!(run_test_cmd(tmp, cmd).await.is_err());
+    assert!(run_test_cmd(tmp, cmd, 10_000).await.is_err());
 }

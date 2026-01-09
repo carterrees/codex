@@ -26,6 +26,43 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::process::Command;
 
+pub async fn dotslash_available_for_tests() -> bool {
+    match Command::new("bash")
+        .arg("-lc")
+        .arg("command -v dotslash >/dev/null 2>&1")
+        .status()
+        .await
+    {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
+}
+
+async fn resolve_bash_for_tests(dotslash_cache: &Path) -> anyhow::Result<PathBuf> {
+    // Prefer the hermetic patched bash via DotSlash (CI / fully-provisioned dev envs).
+    // Fallback to system bash so `cargo test` remains usable out of the box.
+    if dotslash_available_for_tests().await {
+        // `bash` is a test resource rather than a binary target, so we must use
+        // `find_resource!` to locate it instead of `cargo_bin()`.
+        let bash = find_resource!("../suite/bash")?;
+
+        // Need to ensure the artifact associated with the bash DotSlash file is
+        // available before it is run in a read-only sandbox.
+        let status = Command::new("dotslash")
+            .arg("--")
+            .arg("fetch")
+            .arg(bash.clone())
+            .env("DOTSLASH_CACHE", dotslash_cache)
+            .status()
+            .await?;
+        anyhow::ensure!(status.success(), "dotslash fetch failed: {status:?}");
+        Ok(bash)
+    } else {
+        eprintln!("dotslash not found; falling back to system /bin/bash for exec-server tests");
+        Ok(PathBuf::from("/bin/bash"))
+    }
+}
+
 pub async fn create_transport<P>(
     codex_home: P,
     dotslash_cache: P,
@@ -36,20 +73,7 @@ where
     let mcp_executable = codex_utils_cargo_bin::cargo_bin("codex-exec-mcp-server")?;
     let execve_wrapper = codex_utils_cargo_bin::cargo_bin("codex-execve-wrapper")?;
 
-    // `bash` is a test resource rather than a binary target, so we must use
-    // `find_resource!` to locate it instead of `cargo_bin()`.
-    let bash = find_resource!("../suite/bash")?;
-
-    // Need to ensure the artifact associated with the bash DotSlash file is
-    // available before it is run in a read-only sandbox.
-    let status = Command::new("dotslash")
-        .arg("--")
-        .arg("fetch")
-        .arg(bash.clone())
-        .env("DOTSLASH_CACHE", dotslash_cache.as_ref())
-        .status()
-        .await?;
-    assert!(status.success(), "dotslash fetch failed: {status:?}");
+    let bash = resolve_bash_for_tests(dotslash_cache.as_ref()).await?;
 
     let transport = TokioChildProcess::new(Command::new(&mcp_executable).configure(|cmd| {
         cmd.arg("--bash").arg(bash);

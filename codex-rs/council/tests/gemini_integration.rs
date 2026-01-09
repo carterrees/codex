@@ -1,7 +1,11 @@
 use codex_council::client::CouncilClient;
 use codex_council::prompts;
-use wiremock::matchers::{header, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::Mock;
+use wiremock::MockServer;
+use wiremock::ResponseTemplate;
+use wiremock::matchers::header;
+use wiremock::matchers::method;
+use wiremock::matchers::path;
 
 #[tokio::test]
 async fn test_gemini_client_integration() {
@@ -42,7 +46,7 @@ async fn test_gemini_client_integration() {
     let requests = server.received_requests().await.unwrap();
     assert_eq!(requests.len(), 1);
     let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
-    
+
     assert_eq!(body["model"], prompts::MODEL_CRITIC_GEMINI);
     assert_eq!(body["messages"][0]["role"], "system");
     assert_eq!(body["messages"][0]["content"], "System Prompt");

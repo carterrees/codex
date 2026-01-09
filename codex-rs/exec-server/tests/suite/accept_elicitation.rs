@@ -32,6 +32,13 @@ use tokio::process::Command;
 /// command should be run privileged outside the sandbox.
 #[tokio::test(flavor = "current_thread")]
 async fn accept_elicitation_for_prompt_rule() -> Result<()> {
+    if !exec_server_test_support::dotslash_available_for_tests().await {
+        eprintln!(
+            "dotslash not found; skipping exec-server escalation test (requires hermetic patched bash)"
+        );
+        return Ok(());
+    }
+
     // Configure a stdio transport that will launch the MCP server using
     // $CODEX_HOME with an execpolicy that prompts for `git init` commands.
     let codex_home = TempDir::new()?;

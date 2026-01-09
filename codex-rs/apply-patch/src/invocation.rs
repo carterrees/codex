@@ -162,12 +162,23 @@ pub fn maybe_parse_apply_patch_verified(argv: &[String], cwd: &Path) -> MaybeApp
                 .unwrap_or_else(|| cwd.to_path_buf());
             let mut changes = HashMap::new();
             for hunk in hunks {
-                let path = hunk.resolve_path(&effective_cwd);
                 match hunk {
-                    Hunk::AddFile { contents, .. } => {
+                    Hunk::AddFile { path, contents } => {
+                        let path = match crate::resolve_patch_path_in_dir(&effective_cwd, &path) {
+                            Ok(path) => path,
+                            Err(err) => {
+                                return MaybeApplyPatchVerified::CorrectnessError(err);
+                            }
+                        };
                         changes.insert(path, ApplyPatchFileChange::Add { content: contents });
                     }
-                    Hunk::DeleteFile { .. } => {
+                    Hunk::DeleteFile { path } => {
+                        let path = match crate::resolve_patch_path_in_dir(&effective_cwd, &path) {
+                            Ok(path) => path,
+                            Err(err) => {
+                                return MaybeApplyPatchVerified::CorrectnessError(err);
+                            }
+                        };
                         let content = match std::fs::read_to_string(&path) {
                             Ok(content) => content,
                             Err(e) => {
@@ -182,8 +193,16 @@ pub fn maybe_parse_apply_patch_verified(argv: &[String], cwd: &Path) -> MaybeApp
                         changes.insert(path, ApplyPatchFileChange::Delete { content });
                     }
                     Hunk::UpdateFile {
-                        move_path, chunks, ..
+                        path,
+                        move_path,
+                        chunks,
                     } => {
+                        let path = match crate::resolve_patch_path_in_dir(&effective_cwd, &path) {
+                            Ok(path) => path,
+                            Err(err) => {
+                                return MaybeApplyPatchVerified::CorrectnessError(err);
+                            }
+                        };
                         let ApplyPatchFileUpdate {
                             unified_diff,
                             content: contents,
@@ -193,11 +212,22 @@ pub fn maybe_parse_apply_patch_verified(argv: &[String], cwd: &Path) -> MaybeApp
                                 return MaybeApplyPatchVerified::CorrectnessError(e);
                             }
                         };
+                        let move_path = match move_path {
+                            Some(move_path) => {
+                                match crate::resolve_patch_path_in_dir(&effective_cwd, &move_path) {
+                                    Ok(path) => Some(path),
+                                    Err(err) => {
+                                        return MaybeApplyPatchVerified::CorrectnessError(err);
+                                    }
+                                }
+                            }
+                            None => None,
+                        };
                         changes.insert(
                             path,
                             ApplyPatchFileChange::Update {
                                 unified_diff,
-                                move_path: move_path.map(|p| effective_cwd.join(p)),
+                                move_path,
                                 new_content: contents,
                             },
                         );

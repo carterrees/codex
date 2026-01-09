@@ -12,6 +12,8 @@ use ratatui::widgets::Paragraph;
 use ratatui::widgets::WidgetRef;
 use ratatui::widgets::Wrap;
 
+use codex_ansi_escape::ansi_escape_line;
+
 use crate::ascii_animation::AsciiAnimation;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
 use crate::onboarding::onboarding_screen::StepStateProvider;
@@ -71,7 +73,7 @@ impl WidgetRef for &WelcomeWidget {
         let mut lines: Vec<Line> = Vec::new();
         if show_animation && self.animations_enabled {
             let frame = self.animation.current_frame();
-            lines.extend(frame.lines().map(Into::into));
+            lines.extend(frame.lines().map(ansi_escape_line));
             lines.push("".into());
         }
         lines.push(Line::from(vec![
@@ -108,28 +110,22 @@ mod tests {
 
     #[test]
     fn welcome_renders_animation_on_first_draw() {
-        let widget = WelcomeWidget::new(false, FrameRequester::test_dummy(), true);
+        let widget = WelcomeWidget {
+            is_logged_in: false,
+            animation: AsciiAnimation::with_variants(FrameRequester::test_dummy(), &VARIANTS, 0),
+            animations_enabled: true,
+        };
         let area = Rect::new(0, 0, MIN_ANIMATION_WIDTH, MIN_ANIMATION_HEIGHT);
         let mut buf = Buffer::empty(area);
         (&widget).render(area, &mut buf);
 
-        let mut found = false;
-        let mut last_non_empty: Option<u16> = None;
-        for y in 0..area.height {
-            for x in 0..area.width {
-                if !buf[(x, y)].symbol().trim().is_empty() {
-                    found = true;
-                    last_non_empty = Some(y);
-                    break;
-                }
-            }
+        let mut first_row = String::new();
+        for x in 0..area.width {
+            first_row.push_str(buf[(x, 0)].symbol());
         }
-
-        assert!(found, "expected welcome animation to render characters");
-        let measured_rows = last_non_empty.map(|v| v + 2).unwrap_or(0);
         assert!(
-            measured_rows >= MIN_ANIMATION_HEIGHT,
-            "expected measurement to report at least {MIN_ANIMATION_HEIGHT} rows, got {measured_rows}"
+            first_row.contains("frame-a"),
+            "expected welcome animation to render the first variant"
         );
     }
 

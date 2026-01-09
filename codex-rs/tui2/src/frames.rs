@@ -54,8 +54,10 @@ pub(crate) const FRAMES_HBARS: [&str; 36] = frames_for!("hbars");
 pub(crate) const FRAMES_VBARS: [&str; 36] = frames_for!("vbars");
 pub(crate) const FRAMES_SHAPES: [&str; 36] = frames_for!("shapes");
 pub(crate) const FRAMES_SLUG: [&str; 36] = frames_for!("slug");
+pub(crate) const FRAMES_COUNCIL: [&str; 36] = frames_for!("council");
 
 pub(crate) const ALL_VARIANTS: &[&[&str]] = &[
+    &FRAMES_COUNCIL,
     &FRAMES_DEFAULT,
     &FRAMES_CODEX,
     &FRAMES_OPENAI,

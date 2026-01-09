@@ -358,6 +358,14 @@ pub struct Config {
 
     /// OTEL configuration (exporter type, endpoint, headers, etc.).
     pub otel: crate::config::types::OtelConfig,
+
+    /// Prompt version tag (e.g. "v1", "v2").
+    pub prompt_version: String,
+
+    pub council_chair_model: String,
+    pub council_critic_gpt_model: String,
+    pub council_critic_gemini_model: String,
+    pub council_implementer_model: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -837,6 +845,15 @@ pub struct ConfigToml {
     pub experimental_use_freeform_apply_patch: Option<bool>,
     /// Preferred OSS provider for local models, e.g. "lmstudio" or "ollama".
     pub oss_provider: Option<String>,
+
+    /// Version tag for prompt assets (e.g. "v1", "v2").
+    #[serde(default)]
+    pub prompt_version: Option<String>,
+
+    pub council_chair_model: Option<String>,
+    pub council_critic_gpt_model: Option<String>,
+    pub council_critic_gemini_model: Option<String>,
+    pub council_implementer_model: Option<String>,
 }
 
 impl From<ConfigToml> for UserSavedConfig {
@@ -1446,6 +1463,19 @@ impl Config {
                     trace_exporter,
                 }
             },
+            prompt_version: cfg.prompt_version.unwrap_or_else(|| "v1".to_string()),
+            council_chair_model: cfg
+                .council_chair_model
+                .unwrap_or_else(|| "gpt-5.2-2025-12-11".to_string()),
+            council_critic_gpt_model: cfg
+                .council_critic_gpt_model
+                .unwrap_or_else(|| "gpt-5.1-codex".to_string()),
+            council_critic_gemini_model: cfg
+                .council_critic_gemini_model
+                .unwrap_or_else(|| "gemini-3-pro-preview".to_string()),
+            council_implementer_model: cfg
+                .council_implementer_model
+                .unwrap_or_else(|| "gemini-3-flash-preview".to_string()),
         };
         Ok(config)
     }
@@ -3234,6 +3264,11 @@ model_verbosity = "high"
                 tui_scroll_wheel_like_max_duration_ms: None,
                 tui_scroll_invert: false,
                 otel: OtelConfig::default(),
+                prompt_version: "v1".to_string(),
+                council_chair_model: "gpt-5.2-2025-12-11".to_string(),
+                council_critic_gpt_model: "gpt-5.1-codex".to_string(),
+                council_critic_gemini_model: "gemini-3-pro-preview".to_string(),
+                council_implementer_model: "gemini-3-flash-preview".to_string(),
             },
             o3_profile_config
         );
@@ -3318,6 +3353,11 @@ model_verbosity = "high"
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
             otel: OtelConfig::default(),
+            prompt_version: "v1".to_string(),
+            council_chair_model: "gpt-5.2-2025-12-11".to_string(),
+            council_critic_gpt_model: "gpt-5.1-codex".to_string(),
+            council_critic_gemini_model: "gemini-3-pro-preview".to_string(),
+            council_implementer_model: "gemini-3-flash-preview".to_string(),
         };
 
         assert_eq!(expected_gpt3_profile_config, gpt3_profile_config);
@@ -3417,6 +3457,11 @@ model_verbosity = "high"
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
             otel: OtelConfig::default(),
+            prompt_version: "v1".to_string(),
+            council_chair_model: "gpt-5.2-2025-12-11".to_string(),
+            council_critic_gpt_model: "gpt-5.1-codex".to_string(),
+            council_critic_gemini_model: "gemini-3-pro-preview".to_string(),
+            council_implementer_model: "gemini-3-flash-preview".to_string(),
         };
 
         assert_eq!(expected_zdr_profile_config, zdr_profile_config);
@@ -3502,6 +3547,11 @@ model_verbosity = "high"
             tui_scroll_wheel_like_max_duration_ms: None,
             tui_scroll_invert: false,
             otel: OtelConfig::default(),
+            prompt_version: "v1".to_string(),
+            council_chair_model: "gpt-5.2-2025-12-11".to_string(),
+            council_critic_gpt_model: "gpt-5.1-codex".to_string(),
+            council_critic_gemini_model: "gemini-3-pro-preview".to_string(),
+            council_implementer_model: "gemini-3-flash-preview".to_string(),
         };
 
         assert_eq!(expected_gpt5_profile_config, gpt5_profile_config);

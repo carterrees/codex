@@ -1624,6 +1624,12 @@ impl ChatWidget {
                     self.add_info_message("Rollout path is not available yet.".to_string(), None);
                 }
             }
+            SlashCommand::ThinThread => {
+                self.add_info_message(
+                    "Usage: /thinthread <fix|review> <file>\n       /thinthread apply <job_id>\n       /thinthread cancel <job_id>".to_string(),
+                    None,
+                );
+            }
             SlashCommand::TestApproval => {
                 use codex_core::protocol::EventMsg;
                 use std::collections::HashMap;
@@ -1678,6 +1684,56 @@ impl ChatWidget {
 
         let trimmed = args.trim();
         match cmd {
+            SlashCommand::ThinThread => {
+                let args_vec: Vec<&str> = trimmed.split_whitespace().collect();
+                if args_vec.is_empty() {
+                    self.dispatch_command(cmd);
+                    return;
+                }
+
+                match args_vec[0] {
+                    "fix" | "review" => {
+                        let mode = if args_vec[0] == "fix" {
+                            codex_council::CouncilMode::Fix
+                        } else {
+                            codex_council::CouncilMode::Review
+                        };
+                        if args_vec.len() < 2 {
+                            self.add_error_message(format!(
+                                "Usage: /thinthread {} <file>",
+                                args_vec[0]
+                            ));
+                            return;
+                        }
+                        let target_str = args_vec[1];
+                        // Basic resolution relative to CWD
+                        let target = self.config.cwd.join(target_str);
+                        self.app_event_tx
+                            .send(AppEvent::StartCouncilJob { mode, target });
+                    }
+                    "apply" => {
+                        if args_vec.len() < 2 {
+                            self.add_error_message("Usage: /thinthread apply <job_id>".to_string());
+                            return;
+                        }
+                        self.app_event_tx
+                            .send(AppEvent::ApplyCouncilJob(args_vec[1].to_string()));
+                    }
+                    "cancel" => {
+                        if args_vec.len() < 2 {
+                            self.add_error_message(
+                                "Usage: /thinthread cancel <job_id>".to_string(),
+                            );
+                            return;
+                        }
+                        self.app_event_tx
+                            .send(AppEvent::CancelCouncilJob(args_vec[1].to_string()));
+                    }
+                    _ => {
+                        self.add_error_message(format!("Unknown subcommand '{}'", args_vec[0]));
+                    }
+                }
+            }
             SlashCommand::Review if !trimmed.is_empty() => {
                 self.submit_op(Op::Review {
                     review_request: ReviewRequest {

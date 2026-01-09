@@ -1,8 +1,12 @@
 use anyhow::Result;
-use codex_api::{ChatClient, ChatRequestBuilder, Provider, ReqwestTransport};
+use codex_api::ChatClient;
+use codex_api::ChatRequestBuilder;
+use codex_api::Provider;
+use codex_api::ReqwestTransport;
 use codex_core::default_client::build_reqwest_client;
 use codex_core::model_provider_info::ModelProviderInfo;
-use codex_protocol::models::{ContentItem, ResponseItem};
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::ResponseItem;
 
 #[derive(Clone)]
 pub struct SimpleAuthProvider {
@@ -51,9 +55,7 @@ impl CouncilClient {
         let input = vec![ResponseItem::Message {
             id: None,
             role: "user".to_string(),
-            content: vec![ContentItem::InputText {
-                text: user_message,
-            }],
+            content: vec![ContentItem::InputText { text: user_message }],
         }];
 
         let request = ChatRequestBuilder::new(&self.model_id, &system_prompt, &input, &[])
@@ -63,23 +65,20 @@ impl CouncilClient {
         let mut stream = self.client.stream_request(request).await?;
         let mut full_content = String::new();
 
-        use futures::StreamExt;
         use codex_api::ResponseEvent;
+        use futures::StreamExt;
 
         while let Some(event) = stream.next().await {
             match event? {
                 ResponseEvent::OutputTextDelta(delta) => {
                     full_content.push_str(&delta);
                 }
-                ResponseEvent::OutputItemDone(item) => {
-                    if let ResponseItem::Message { content, role, .. } = item {
-                        if role == "assistant" {
-                            for c in content {
-                                if let ContentItem::OutputText { text } = c {
-                                    if full_content.is_empty() {
-                                         full_content.push_str(&text);
-                                    }
-                                }
+                ResponseEvent::OutputItemDone(ResponseItem::Message { content, role, .. }) => {
+                    if role == "assistant" && full_content.is_empty() {
+                        for c in content {
+                            if let ContentItem::OutputText { text } = c {
+                                full_content.push_str(&text);
+                                break;
                             }
                         }
                     }
@@ -89,7 +88,8 @@ impl CouncilClient {
         }
 
         if full_content.is_empty() {
-            anyhow::bail!("No content in response from {}", self.model_id);
+            let model_id = &self.model_id;
+            anyhow::bail!("No content in response from {model_id}");
         }
 
         Ok(full_content)

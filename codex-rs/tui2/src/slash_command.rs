@@ -24,6 +24,8 @@ pub enum SlashCommand {
     Diff,
     Mention,
     Status,
+    #[strum(serialize = "thinthread")]
+    ThinThread,
     Mcp,
     Logout,
     Quit,
@@ -42,6 +44,7 @@ impl SlashCommand {
             SlashCommand::Init => "create an AGENTS.md file with instructions for Codex",
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
             SlashCommand::Review => "review my current changes and find issues",
+            SlashCommand::ThinThread => "run Council review/fix jobs (Council v2)",
             SlashCommand::Resume => "resume a saved chat",
             // SlashCommand::Undo => "ask Codex to undo a turn",
             SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
@@ -76,7 +79,8 @@ impl SlashCommand {
             | SlashCommand::Approvals
             | SlashCommand::Review
             | SlashCommand::Logout => false,
-            SlashCommand::Diff
+            SlashCommand::ThinThread
+            | SlashCommand::Diff
             | SlashCommand::Mention
             | SlashCommand::Skills
             | SlashCommand::Status

@@ -43,6 +43,8 @@ mod cli;
 mod clipboard_copy;
 mod clipboard_paste;
 mod color;
+pub mod council_job;
+pub mod council_progress_cell;
 pub mod custom_terminal;
 mod diff_render;
 mod exec_cell;

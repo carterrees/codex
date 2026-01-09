@@ -1,25 +1,33 @@
-# Codex Council
+# ThinThread (formerly Codex Council)
 
-**Codex Council** is a multi-agent orchestration layer for Codex that uses a committee of AI models (GPT-5, Gemini 3) to review and fix code with high reliability.
+**ThinThread** is a multi-agent orchestration layer for Codex that uses a committee of AI models (GPT-5, Gemini 3) to review and fix code with high reliability.
 
-## Quick Start
+## Workflow
 
-1.  **Build**:
-    ```bash
-    cargo install --path codex-rs/cli --bin codex --root ~/.cargo --force
-    mv ~/.cargo/bin/codex ~/.cargo/bin/codex-council
-    ```
+1. **Context Building:** ThinThread analyzes the file you want to fix (`target`) and gathers relevant context (imports, definitions, tests).
+2. **Worktree Isolation:** It creates a temporary git worktree to run the fix safely.
+3. **Phase 1: Criticism:** Two critics (GPT-5.1 & Gemini 3 Pro) review the code and identify bugs.
+4. **Phase 2: Planning:** The Chair (GPT-5.2) synthesizes the critiques into a strict plan.
+5. **Phase 3: Implementation:** The Implementer (Gemini 3 Flash) writes the code patch.
+6. **Phase 4: Apply & Verify:** The patch is applied and verification commands (lints/tests) are run.
 
-2.  **Environment**:
-    ```bash
-    export OPENAI_API_KEY="..."
-    export GEMINI_API_KEY="..."
-    ```
+## Usage
 
-3.  **Run**:
-    ```bash
-    # Fix a file autonomously
-    codex-council council fix src/main.rs
-    ```
+### Interactive Chat (TUI)
+Run `codex` (or `thinthread` if you alias it) to start the TUI. The header will show “ThinThread”.
 
-For full documentation, see [codex-rs/council/README.md](codex-rs/council/README.md).
+### Council CLI (Fixer)
+To fix a bug:
+```bash
+codex council fix src/lib.rs
+```
+
+## Configuration
+
+In `~/.codex/config.toml`:
+
+```toml
+prompt_version = "v2"
+council_chair_model = "gpt-5.2-2025-12-11"
+council_implementer_model = "gemini-3-flash-preview"
+```

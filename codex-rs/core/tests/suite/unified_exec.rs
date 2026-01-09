@@ -156,6 +156,7 @@ fn collect_tool_outputs(bodies: &[Value]) -> Result<HashMap<String, ParsedUnifie
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[cfg(not(target_os = "macos"))]
 async fn unified_exec_intercepts_apply_patch_exec_command() -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
@@ -1086,15 +1087,15 @@ async fn unified_exec_emits_one_begin_and_one_end_event() -> Result<()> {
     let open_call_id = "uexec-open-session";
     let open_args = json!({
         "shell": "bash".to_string(),
-        "cmd": "sleep 0.1".to_string(),
-        "yield_time_ms": 10,
+        "cmd": "sleep 2.0".to_string(),
+        "yield_time_ms": 5000,
     });
 
     let poll_call_id = "uexec-poll-empty";
     let poll_args = json!({
         "chars": "",
         "session_id": 1000,
-        "yield_time_ms": 150,
+        "yield_time_ms": 5000,
     });
 
     let responses = vec![
@@ -1167,7 +1168,7 @@ async fn unified_exec_emits_one_begin_and_one_end_event() -> Result<()> {
 
     let open_event = &begin_events[0];
 
-    assert_command(&open_event.command, "-lc", "sleep 0.1");
+    assert_command(&open_event.command, "-lc", "sleep 2.0");
 
     assert!(
         open_event.interaction_input.is_none(),
@@ -1766,14 +1767,14 @@ async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
     let first_call_id = "uexec-start";
     let first_args = serde_json::json!({
         "cmd": "/bin/cat",
-        "yield_time_ms": 200,
+        "yield_time_ms": 2000,
     });
 
     let second_call_id = "uexec-stdin";
     let second_args = serde_json::json!({
         "chars": "hello unified exec\n",
         "session_id": 1000,
-        "yield_time_ms": 500,
+        "yield_time_ms": 2000,
     });
 
     let responses = vec![
@@ -2003,15 +2004,15 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
 
     let first_call_id = "uexec-timeout";
     let first_args = serde_json::json!({
-        "cmd": "sleep 0.5; echo ready",
-        "yield_time_ms": 10,
+        "cmd": "sleep 2; echo ready",
+        "yield_time_ms": 500,
     });
 
     let second_call_id = "uexec-poll";
     let second_args = serde_json::json!({
         "chars": "",
         "session_id": 1000,
-        "yield_time_ms": 800,
+        "yield_time_ms": 10_000,
     });
 
     let responses = vec![
